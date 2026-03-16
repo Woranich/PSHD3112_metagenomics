@@ -1,0 +1,45 @@
+import pandas as pd
+
+# Input files
+ry_file = "RY.tsv"
+hh_file = "HH.tsv"
+
+# Read tables
+ry = pd.read_csv(ry_file, sep="\t", comment="#")
+hh = pd.read_csv(hh_file, sep="\t", comment="#")
+
+# Rename columns
+ry = ry.rename(columns={"Feature ID": "ASVs"})
+hh = hh.rename(columns={"Feature ID": "ASVs"})
+
+# Extract abundance
+ry["RY"] = ry.iloc[:,1]
+hh["HH"] = hh.iloc[:,1]
+
+# Keep needed columns
+ry = ry[["ASVs","RY","Taxon"]]
+hh = hh[["ASVs","HH","Taxon"]]
+
+# Merge tables by ASV sequence
+merged = pd.merge(ry, hh, on="ASVs", how="outer")
+
+# Combine taxonomy columns
+merged["taxonomy"] = merged["Taxon_x"].combine_first(merged["Taxon_y"])
+
+# Fill missing counts
+merged["RY"] = merged["RY"].fillna(0)
+merged["HH"] = merged["HH"].fillna(0)
+
+# Keep final columns
+merged = merged[["ASVs","RY","HH","taxonomy"]]
+
+# Sort by abundance (optional)
+merged = merged.sort_values(by=["RY","HH"], ascending=False).reset_index(drop=True)
+
+# Rename ASVs
+merged["ASVs"] = ["ASV{}".format(i+1) for i in range(len(merged))]
+
+# Export
+merged.to_csv("ASV_frequency_table.csv", index=False)
+
+print("ASV table saved as ASV_frequency_table.csv")
