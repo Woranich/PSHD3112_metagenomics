@@ -1,0 +1,49 @@
+#### This is to create stacked barplot for phylum and genus abundance ####
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ===== LOAD PHYLUM TABLE =====
+phylum_df = pd.read_csv("phylum_relative_abundance.csv", index_col=0)
+
+# Transpose: samples as rows
+phylum_df = phylum_df.T
+
+# Optional: keep top N phyla
+top_n = 10
+top_phyla = phylum_df.sum().sort_values(ascending=False).head(top_n).index
+
+phylum_df["Others"] = phylum_df.drop(columns=top_phyla).sum(axis=1)
+phylum_df = phylum_df[top_phyla.tolist() + ["Others"]]
+
+# ===== PLOT =====
+phylum_df.plot(kind="bar", stacked=True, figsize=(8,5))
+
+plt.ylabel("Relative Abundance")
+plt.title("Phylum-level Composition")
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.savefig("phylum_stacked_bar.png", dpi=300)
+plt.show()
+
+# ===== LOAD GENUS TABLE =====
+genus_df = pd.read_csv("genus_relative_abundance.csv", index_col=0)
+
+genus_df = genus_df.T
+
+# Top genera (important to reduce clutter)
+top_n = 15
+top_genera = genus_df.sum().sort_values(ascending=False).head(top_n).index
+
+genus_df["Others"] = genus_df.drop(columns=top_genera).sum(axis=1)
+genus_df = genus_df[top_genera.tolist() + ["Others"]]
+
+# ===== PLOT =====
+genus_df.plot(kind="bar", stacked=True, figsize=(8,5))
+
+plt.ylabel("Relative Abundance")
+plt.title("Genus-level Composition")
+plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.savefig("genus_stacked_bar.png", dpi=300)
+plt.show()
