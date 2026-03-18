@@ -1,0 +1,25 @@
+# This step convert the raw/absolute frequency to relative abundance
+
+import pandas as pd
+
+# ===== INPUT / OUTPUT =====
+input_file = "asv_frequency_clean.csv"
+output_file = "asv_relative_abundance_percent.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+
+# ===== DEFINE SAMPLE COLUMNS =====
+sample_cols = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
+
+# ===== CONVERT TO NUMERIC =====
+for col in sample_cols:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+# ===== CALCULATE RELATIVE ABUNDANCE (%) =====
+df[sample_cols] = df[sample_cols].div(df[sample_cols].sum(axis=0), axis=1) * 100
+
+# ===== SAVE OUTPUT =====
+df.to_csv(output_file, index=False)
+
+print(f"Relative abundance (%) file saved as {output_file}")
