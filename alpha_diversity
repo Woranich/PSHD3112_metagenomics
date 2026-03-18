@@ -1,4 +1,4 @@
-# This step calculate alpha diversity from ASV count table
+##### This step calculate alpha diversity from ASV count table #####
 
 import pandas as pd
 import numpy as np
@@ -63,3 +63,58 @@ alpha_df.to_csv(output_file, index=False)
 
 print(alpha_df)
 print(f"\nAlpha diversity file saved as {output_file}")
+
+#################################################################################
+
+#### This step test statistical different and create boxplot for all alphadiversity indices.
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import mannwhitneyu
+
+# ===== INPUT =====
+input_file = "alpha_diversity_indices.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+df["Group"] = ["RY", "RY", "RY", "HH", "HH", "HH"]
+
+indices = ["Chao1", "Shannon", "Simpson"]
+
+def p_to_stars(p):
+    if p < 0.001:
+        return "***"
+    elif p < 0.01:
+        return "**"
+    elif p < 0.05:
+        return "*"
+    else:
+        return "ns"
+
+for idx in indices:
+    ry = df[df["Group"] == "RY"][idx]
+    hh = df[df["Group"] == "HH"][idx]
+
+    stat, pval = mannwhitneyu(ry, hh, alternative="two-sided")
+    stars = p_to_stars(pval)
+
+    print(f"{idx}: U={stat}, p={pval:.4f}")
+
+    plt.figure(figsize=(5,5))
+    plt.boxplot([ry, hh], labels=["RY", "HH"])
+    plt.scatter([1]*len(ry), ry, alpha=0.8)
+    plt.scatter([2]*len(hh), hh, alpha=0.8)
+
+    y_max = max(df[idx])
+    y_min = min(df[idx])
+    y, h = y_max + (y_max - y_min)*0.1, (y_max - y_min)*0.05
+
+    plt.plot([1, 1, 2, 2], [y, y+h, y+h, y], lw=1.2)
+    plt.text(1.5, y+h, f"{stars}\np={pval:.4f}", ha="center", va="bottom")
+
+    plt.ylabel(idx)
+    plt.title(f"{idx} diversity")
+    plt.tight_layout()
+    plt.savefig(f"{idx}_boxplot.png", dpi=300)
+    plt.show()
+
