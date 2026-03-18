@@ -1,0 +1,87 @@
+##### This step calculate and create Bray-Curtis dissimilarity matrix, create PCoA plot, and calculate PERMANOVA ####
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from scipy.spatial.distance import pdist, squareform
+from skbio.stats.ordination import pcoa
+from skbio.stats.distance import DistanceMatrix, permanova
+
+# ===== INPUT =====
+input_file = "asv_relative_abundance.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+
+# ===== DEFINE SAMPLE COLUMNS =====
+sample_cols = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
+
+# ===== EXTRACT ASV TABLE =====
+# Rows = ASVs, Columns = samples
+asv_table = df[sample_cols]
+
+# Transpose so rows = samples, columns = ASVs
+sample_matrix = asv_table.T
+
+# ===== CALCULATE BRAY-CURTIS DISTANCE =====
+bray_curtis = pdist(sample_matrix, metric="braycurtis")
+bray_matrix = squareform(bray_curtis)
+
+# Convert to DataFrame for saving/viewing
+bray_df = pd.DataFrame(bray_matrix, index=sample_cols, columns=sample_cols)
+bray_df.to_csv("bray_curtis_distance_matrix.csv")
+
+print("Bray-Curtis distance matrix:")
+print(bray_df)
+
+# ===== PCoA =====
+dm = DistanceMatrix(bray_matrix, ids=sample_cols)
+pcoa_results = pcoa(dm)
+
+# Save coordinates
+pcoa_df = pcoa_results.samples.iloc[:, :2].copy()
+pcoa_df["Sample"] = pcoa_df.index
+pcoa_df["Group"] = ["RY", "RY", "RY", "HH", "HH", "HH"]
+pcoa_df.to_csv("pcoa_coordinates.csv", index=False)
+
+print("\nPCoA coordinates:")
+print(pcoa_df)
+
+# ===== PLOT PCoA =====
+plt.figure(figsize=(6, 5))
+
+for group in ["RY", "HH"]:
+    subset = pcoa_df[pcoa_df["Group"] == group]
+    plt.scatter(subset["PC1"], subset["PC2"], label=group)
+
+    # Add sample labels
+    for _, row in subset.iterrows():
+        plt.text(row["PC1"], row["PC2"], row["Sample"], fontsize=9)
+
+# Axis labels with explained variance
+pc1_var = pcoa_results.proportion_explained.iloc[0] * 100
+pc2_var = pcoa_results.proportion_explained.iloc[1] * 100
+
+plt.xlabel(f"PCoA1 ({pc1_var:.2f}%)")
+plt.ylabel(f"PCoA2 ({pc2_var:.2f}%)")
+plt.title("PCoA of Bray-Curtis distances")
+plt.legend()
+plt.tight_layout()
+plt.savefig("pcoa_bray_curtis.png", dpi=300)
+plt.show()
+
+# ===== PERMANOVA =====
+metadata = pd.DataFrame({
+    "Sample": sample_cols,
+    "Group": ["RY", "RY", "RY", "HH", "HH", "HH"]
+}).set_index("Sample")
+
+permanova_result = permanova(dm, metadata, column="Group", permutations=999)
+
+print("\nPERMANOVA result:")
+print(permanova_result)
+
+# Save PERMANOVA result as text
+with open("permanova_result.txt", "w") as f:
+    f.write(str(permanova_result))
