@@ -1,0 +1,35 @@
+#### This is to make convert ASV to separate file for phylum and genus abundance ####
+
+import pandas as pd
+
+# ===== INPUT =====
+input_file = "asv_relative_abundance_percent.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+
+# ===== SAMPLE COLUMNS =====
+sample_cols = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
+
+# ===== EXTRACT TAXONOMY LEVELS =====
+def extract_taxonomy(tax_string, level_prefix):
+    parts = [x.strip() for x in tax_string.split(";")]
+    for p in parts:
+        if p.startswith(level_prefix):
+            return p.replace(level_prefix, "")
+    return "Unclassified"
+
+df["Phylum"] = df["Taxonomy"].apply(lambda x: extract_taxonomy(x, "p__"))
+df["Genus"]  = df["Taxonomy"].apply(lambda x: extract_taxonomy(x, "g__"))
+
+# ===== AGGREGATE TO PHYLUM =====
+phylum_df = df.groupby("Phylum")[sample_cols].sum()
+
+# ===== AGGREGATE TO GENUS =====
+genus_df = df.groupby("Genus")[sample_cols].sum()
+
+# Save intermediate tables (useful for teaching)
+phylum_df.to_csv("phylum_relative_abundance.csv")
+genus_df.to_csv("genus_relative_abundance.csv")
+
+print("Aggregation complete")
