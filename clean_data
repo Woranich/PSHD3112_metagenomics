@@ -1,0 +1,18 @@
+# Do this step to clean the data
+import pandas as pd
+
+# ===== INPUT / OUTPUT =====
+input_file = "asv_raw_frequency.csv"
+output_file = "asv_frequency_clean.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+
+# ===== REMOVE UNWANTED TAXA =====
+remove_patterns = "Chloroplast|Mitochondria|Eukaryota|Unassigned"
+df = df[~df["Taxonomy"].str.contains(remove_patterns, case=False, na=False)]
+
+# ===== SAVE FINAL OUTPUT =====
+df.to_csv(output_file, index=False)
+
+print(f"Final cleaned file saved as {output_file}")
