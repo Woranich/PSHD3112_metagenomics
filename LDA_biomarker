@@ -1,0 +1,42 @@
+#### This step create biomarker plot similar to LEfSe analysis ####
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ===== LOAD RESULTS =====
+df = pd.read_csv("lefse_like_results.csv")
+
+# ===== SPLIT BY GROUP =====
+df_ry = df[df["log2FC"] > 0].copy()
+df_hh = df[df["log2FC"] < 0].copy()
+
+# Sort within each group
+df_ry = df_ry.sort_values("LDA_score")
+df_hh = df_hh.sort_values("LDA_score")
+
+# Combine (HH on top, RY on bottom OR vice versa)
+df_plot = pd.concat([df_hh, df_ry])
+
+# ===== COLOR =====
+colors = ["blue" if x < 0 else "red" for x in df_plot["log2FC"]]
+
+# ===== PLOT =====
+plt.figure(figsize=(8,6))
+
+plt.barh(df_plot["Genus"], df_plot["LDA_score"], color=colors)
+
+# Add separator line between groups
+sep = len(df_hh)
+plt.axhline(sep - 0.5, color="black", linestyle="--")
+
+# Labels
+plt.xlabel("Effect Size (LDA-like score)")
+plt.title("Genus-level Biomarkers (Grouped by Location)")
+
+# Optional: annotate group labels
+plt.text(max(df_plot["LDA_score"])*0.8, sep/2, "HH enriched", ha="center")
+plt.text(max(df_plot["LDA_score"])*0.8, sep + len(df_ry)/2, "RY enriched", ha="center")
+
+plt.tight_layout()
+plt.savefig("lda_grouped_plot.png", dpi=300)
+plt.show()
