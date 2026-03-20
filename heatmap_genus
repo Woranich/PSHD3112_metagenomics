@@ -1,0 +1,38 @@
+#### This step create heatmap from genus relative abundance ####
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# ===== INPUT =====
+input_file = "genus_relative_abundance.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file, index_col=0)
+
+# Rows = genera, Columns = samples → transpose
+df = df.T
+
+# ===== SELECT TOP GENERA =====
+top_n = 20
+top_genera = df.sum().sort_values(ascending=False).head(top_n).index
+df = df[top_genera]
+
+# ===== OPTIONAL: LOG TRANSFORM (recommended) =====
+df_log = np.log10(df + 1e-6)
+
+# ===== CREATE HEATMAP =====
+plt.figure(figsize=(10, 6))
+
+sns.clustermap(
+    df_log,
+    method="average",
+    metric="euclidean",
+    cmap="viridis",
+    linewidths=0.5,
+    figsize=(10, 6)
+)
+
+plt.savefig("genus_heatmap.png", dpi=300)
+plt.show()
