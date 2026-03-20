@@ -1,0 +1,79 @@
+#### This step analyse Spearman Rank correlation between biomarker genuses and water qualities ####
+
+import pandas as pd
+import numpy as np
+from scipy.stats import spearmanr
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# ===== INPUT FILES =====
+genus_file = "genus_relative_abundance.csv"
+meta_file = "water_metadata.csv"
+biomarker_file = "lefse_like_results.csv"
+
+# ===== LOAD DATA =====
+genus_df = pd.read_csv(genus_file, index_col=0).T
+meta_df = pd.read_csv(meta_file)
+
+# Fix metadata typo manually if needed
+meta_df["pH"] = pd.to_numeric(meta_df["pH"], errors="coerce")
+
+# Set index
+meta_df = meta_df.set_index("Site")
+
+# Keep only samples present in both
+common_samples = genus_df.index.intersection(meta_df.index)
+
+genus_df = genus_df.loc[common_samples]
+meta_df = meta_df.loc[common_samples]
+
+# Select biomarker genera
+bio = pd.read_csv(biomarker_file)
+
+# Take top biomarkers (or significant ones)
+top_genera = bio["Genus"].head(10)
+
+genus_df = genus_df[top_genera]
+
+# Correlation analysis (Spearman)
+results = []
+
+for genus in genus_df.columns:
+    for env in meta_df.columns:
+        rho, pval = spearmanr(genus_df[genus], meta_df[env])
+        
+        results.append({
+            "Genus": genus,
+            "Variable": env,
+            "Correlation": rho,
+            "pvalue": pval
+        })
+
+corr_df = pd.DataFrame(results)
+corr_df.to_csv("genus_environment_correlation.csv", index=False)
+
+print(corr_df.head())
+
+# Create heatmap
+# Pivot for heatmap
+heatmap_df = corr_df.pivot(index="Genus", columns="Variable", values="Correlation")
+
+plt.figure(figsize=(8,6))
+
+sns.heatmap(
+    heatmap_df,
+    cmap="coolwarm",
+    center=0,
+    annot=True,
+    fmt=".2f",
+    linewidths=0.5
+)
+
+# Fix x-axis labels
+plt.xticks(rotation=45, ha="right")
+plt.yticks(rotation=0)
+
+plt.title("Correlation: Genus vs Water Quality")
+plt.tight_layout()
+plt.savefig("genus_env_heatmap.png", dpi=300)
+plt.show()
