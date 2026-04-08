@@ -11,37 +11,64 @@ genus_file = "genus_relative_abundance.csv"
 meta_file = "water_metadata.csv"
 biomarker_file = "lefse_like_results.csv"
 
+# ===== PARAMETERS =====
+top_n = 10
+
 # ===== LOAD DATA =====
 genus_df = pd.read_csv(genus_file, index_col=0).T
 meta_df = pd.read_csv(meta_file)
+bio_df = pd.read_csv(biomarker_file)
 
-# Fix metadata typo manually if needed
+# ===== CLEAN METADATA =====
+# Convert all environmental columns to numeric except Site
 meta_df["pH"] = pd.to_numeric(meta_df["pH"], errors="coerce")
+for col in meta_df.columns:
+    if col != "Site":
+        meta_df[col] = pd.to_numeric(meta_df[col], errors="coerce")
 
-# Set index
 meta_df = meta_df.set_index("Site")
 
-# Keep only samples present in both
+# ===== MATCH SAMPLES =====
 common_samples = genus_df.index.intersection(meta_df.index)
-
 genus_df = genus_df.loc[common_samples]
 meta_df = meta_df.loc[common_samples]
 
-# Select biomarker genera
-bio = pd.read_csv(biomarker_file)
+# ===== SELECT TOP 10 BIOMARKER GENERA =====
+bio_df = bio_df.dropna(subset=["Genus", "LDA_score"]).copy()
+bio_df["Genus"] = bio_df["Genus"].astype(str).str.strip()
 
-# Take top biomarkers (or significant ones)
-top_genera = bio["Genus"].head(10)
+# Top 10 by highest LDA score
+top_genera = bio_df.sort_values("LDA_score", ascending=False)["Genus"].head(top_n).tolist()
 
-genus_df = genus_df[top_genera]
+# Keep only genera that are actually present in abundance table
+top_genera_present = [g for g in top_genera if g in genus_df.columns]
 
-# Correlation analysis (Spearman)
+print("Top genera from LEfSe-like results:")
+print(top_genera)
+print("\nTop genera found in genus abundance table:")
+print(top_genera_present)
+
+# Subset genus table
+genus_sub = genus_df[top_genera_present].copy()
+
+# ===== CORRELATION ANALYSIS =====
 results = []
 
-for genus in genus_df.columns:
+for genus in genus_sub.columns:
     for env in meta_df.columns:
-        rho, pval = spearmanr(genus_df[genus], meta_df[env])
-        
+        x = pd.to_numeric(genus_sub[genus], errors="coerce")
+        y = pd.to_numeric(meta_df[env], errors="coerce")
+
+        # Remove missing values pairwise
+        valid = x.notna() & y.notna()
+        x_valid = x[valid]
+        y_valid = y[valid]
+
+        if len(x_valid) < 3:
+            rho, pval = np.nan, np.nan
+        else:
+            rho, pval = spearmanr(x_valid, y_valid)
+
         results.append({
             "Genus": genus,
             "Variable": env,
@@ -52,28 +79,47 @@ for genus in genus_df.columns:
 corr_df = pd.DataFrame(results)
 corr_df.to_csv("genus_environment_correlation.csv", index=False)
 
+print("\nCorrelation results:")
 print(corr_df.head())
 
-# Create heatmap
-# Pivot for heatmap
-heatmap_df = corr_df.pivot(index="Genus", columns="Variable", values="Correlation")
+# ===== OPTIONAL: ADD SIGNIFICANCE STARS =====
+def p_to_star(p):
+    if pd.isna(p):
+        return ""
+    elif p < 0.001:
+        return "***"
+    elif p < 0.01:
+        return "**"
+    elif p < 0.05:
+        return "*"
+    else:
+        return ""
 
-plt.figure(figsize=(8,6))
+corr_df["label"] = corr_df.apply(
+    lambda row: f"{row['Correlation']:.2f}{p_to_star(row['pvalue'])}" if pd.notna(row["Correlation"]) else "",
+    axis=1
+)
+
+# ===== CREATE HEATMAP TABLES =====
+heatmap_df = corr_df.pivot(index="Genus", columns="Variable", values="Correlation")
+label_df = corr_df.pivot(index="Genus", columns="Variable", values="label")
+
+# ===== PLOT HEATMAP =====
+plt.figure(figsize=(8, max(5, len(heatmap_df) * 0.5)))
 
 sns.heatmap(
     heatmap_df,
     cmap="coolwarm",
     center=0,
-    annot=True,
-    fmt=".2f",
-    linewidths=0.5
+    annot=label_df,
+    fmt="",
+    linewidths=0.5,
+    cbar_kws={"label": "Spearman rho"}
 )
 
-# Fix x-axis labels
 plt.xticks(rotation=45, ha="right")
 plt.yticks(rotation=0)
-
-plt.title("Correlation: Genus vs Water Quality")
+plt.title("Spearman Correlation: Top 10 Biomarker Genera vs Water Quality")
 plt.tight_layout()
-plt.savefig("genus_env_heatmap.png", dpi=300)
+plt.savefig("genus_env_heatmap.png", dpi=300, bbox_inches="tight")
 plt.show()
