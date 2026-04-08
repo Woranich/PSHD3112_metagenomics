@@ -1,117 +1,213 @@
+#### ===== Part 1 ===== ####
 #### This step create biomarker plot similar to LEfSe analysis ####
 
+import pandas as pd
+import numpy as np
+from scipy.stats import mannwhitneyu
+from statsmodels.stats.multitest import multipletests
+
+# =========================
+# INPUT / OUTPUT
+# =========================
+input_file = "genus_relative_abundance.csv"
+output_file = "lefse_like_results.csv"
+
+# =========================
+# SETTINGS
+# =========================
+ry_samples = ["RY1", "RY2", "RY3"]
+hh_samples = ["HH1", "HH2", "HH3"]
+pseudocount = 1e-6
+
+# =========================
+# LOAD DATA
+# =========================
+df = pd.read_csv(input_file)
+
+# Remove blank Genus rows
+df = df[df["Genus"].notna()]
+df["Genus"] = df["Genus"].astype(str).str.strip()
+df = df[df["Genus"] != ""]
+
+# Keep only required columns
+needed_cols = ["Genus"] + ry_samples + hh_samples
+missing_cols = [c for c in needed_cols if c not in df.columns]
+if missing_cols:
+    raise ValueError(f"Missing columns in input file: {missing_cols}")
+
+df = df[needed_cols].copy()
+
+# Make sure numeric
+for col in ry_samples + hh_samples:
+    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+# =========================
+# HELPER FUNCTION: COHEN'S D
+# =========================
+def cohens_d(x, y):
+    x = np.array(x, dtype=float)
+    y = np.array(y, dtype=float)
+
+    nx = len(x)
+    ny = len(y)
+
+    mean_x = np.mean(x)
+    mean_y = np.mean(y)
+
+    var_x = np.var(x, ddof=1) if nx > 1 else 0
+    var_y = np.var(y, ddof=1) if ny > 1 else 0
+
+    pooled_sd_num = ((nx - 1) * var_x) + ((ny - 1) * var_y)
+    pooled_sd_den = nx + ny - 2
+
+    if pooled_sd_den <= 0:
+        return 0.0
+
+    pooled_sd = np.sqrt(pooled_sd_num / pooled_sd_den)
+
+    if pooled_sd == 0:
+        # If both groups are identical
+        if mean_x == mean_y:
+            return 0.0
+        # If variance is zero but means differ, return a large signed value
+        return np.sign(mean_x - mean_y) * 10.0
+
+    return (mean_x - mean_y) / pooled_sd
+
+# =========================
+# CALCULATE STATISTICS
+# =========================
+results = []
+
+for _, row in df.iterrows():
+    genus = row["Genus"]
+
+    ry_values = row[ry_samples].values.astype(float)
+    hh_values = row[hh_samples].values.astype(float)
+
+    mean_ry = np.mean(ry_values)
+    mean_hh = np.mean(hh_values)
+
+    # log2 fold change: RY over HH
+    log2fc = np.log2((mean_ry + pseudocount) / (mean_hh + pseudocount))
+
+    # Effect size: Cohen's d (RY - HH)
+    effect_size = cohens_d(ry_values, hh_values)
+
+    # Mann-Whitney U test
+    try:
+        pvalue = mannwhitneyu(ry_values, hh_values, alternative="two-sided").pvalue
+    except Exception:
+        pvalue = 1.0
+
+    results.append({
+        "Genus": genus,
+        "Mean_RY": mean_ry,
+        "Mean_HH": mean_hh,
+        "log2FC": log2fc,
+        "Effect_Size": effect_size,
+        "pvalue": pvalue
+    })
+
+res_df = pd.DataFrame(results)
+
+# =========================
+# FDR CORRECTION
+# =========================
+res_df["qvalue"] = multipletests(res_df["pvalue"], method="fdr_bh")[1]
+
+# LDA-like score = absolute effect size
+res_df["LDA_score"] = res_df["Effect_Size"].abs()
+
+# Optional sorting:
+# negative log2FC first (HH enriched), then positive log2FC (RY enriched)
+res_df = res_df.sort_values(["log2FC", "LDA_score"], ascending=[True, False])
+
+# =========================
+# SAVE OUTPUT
+# =========================
+res_df.to_csv(output_file, index=False)
+
+print(f"Done. File saved as: {output_file}")
+print(res_df.head())
+
+
+#### ===== Part 2 ===== ####
+#### This step create LDA plot ####
 import pandas as pd
 import matplotlib.pyplot as plt
 
 # =========================
-# INPUT FILES
+# INPUT / OUTPUT
 # =========================
-abundance_file = "genus_relative_abundance.csv"
-lefse_result_file = "lefse_like_results.csv"
-
-# =========================
-# SAMPLE INFORMATION
-# =========================
-samples = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
-
-sample_to_group = {
-    "RY1": "RY",
-    "RY2": "RY",
-    "RY3": "RY",
-    "HH1": "HH",
-    "HH2": "HH",
-    "HH3": "HH"
-}
+input_file = "lefse_like_results.csv"
+output_file = "lda_grouped_plot.png"
 
 # =========================
-# PART 1: CREATE LEFSE INPUT FILES
+# LOAD DATA
 # =========================
-# Load abundance table
-df = pd.read_csv(abundance_file)
+df = pd.read_csv(input_file)
 
-# Remove empty genus rows
-df = df[df["Genus"].notna()]
-df = df[df["Genus"].astype(str).str.strip() != ""]
+# Remove missing genus names
+df = df[df["Genus"].notna()].copy()
+df["Genus"] = df["Genus"].astype(str).str.strip()
+df = df[df["Genus"] != ""]
 
-# Set genus as index
-df = df.set_index("Genus")
+# Remove missing values in required columns
+df = df.dropna(subset=["log2FC", "LDA_score"])
 
-# Keep only required sample columns
-missing_samples = [s for s in samples if s not in df.columns]
-if missing_samples:
-    raise ValueError(f"These sample columns are missing in {abundance_file}: {missing_samples}")
-
-df_t = df[samples].T
-
-# Create shared file
-shared = df_t.copy()
-shared.insert(0, "numOtus", shared.shape[1])
-shared.insert(0, "Group", shared.index)
-shared.insert(0, "label", "0.03")
-
-shared.to_csv("lefse.shared", sep="\t", index=False)
-
-# Create design file
-design = pd.DataFrame({
-    "Sample": samples,
-    "Group": [sample_to_group[s] for s in samples]
-})
-
-design.to_csv("lefse.design", sep="\t", index=False, header=False)
-
-print("Files created: lefse.shared and lefse.design")
+# Optional: keep only significant biomarkers
+# Uncomment if needed
+# df = df[df["pvalue"] < 0.05]
 
 # =========================
-# PART 2: CREATE GROUPED LDA-LIKE BAR PLOT
+# SPLIT BY GROUP
 # =========================
-# Load LEfSe-like results
-res = pd.read_csv(lefse_result_file)
+# RY enriched = log2FC > 0
+# HH enriched = log2FC < 0
+top_n = 10
 
-# Check required columns
-required_cols = ["Genus", "log2FC", "LDA_score"]
-missing_cols = [c for c in required_cols if c not in res.columns]
-if missing_cols:
-    raise ValueError(f"These columns are missing in {lefse_result_file}: {missing_cols}")
+df_hh = df[df["log2FC"] < 0].copy().sort_values("LDA_score", ascending=False).head(top_n)
+df_ry = df[df["log2FC"] > 0].copy().sort_values("LDA_score", ascending=False).head(top_n)
 
-# Split by enrichment direction
-df_ry = res[res["log2FC"] > 0].copy()
-df_hh = res[res["log2FC"] < 0].copy()
+df_hh = df_hh.sort_values("LDA_score", ascending=True)
+df_ry = df_ry.sort_values("LDA_score", ascending=True)
 
-# Sort within each group
-df_ry = df_ry.sort_values("LDA_score")
-df_hh = df_hh.sort_values("LDA_score")
-
-# Combine for plotting
 df_plot = pd.concat([df_hh, df_ry], axis=0)
 
-# Set colors
+# Colors
 colors = ["blue" if x < 0 else "red" for x in df_plot["log2FC"]]
 
-# Plot
-plt.figure(figsize=(8, 6))
+# =========================
+# PLOT
+# =========================
+plt.figure(figsize=(10, max(6, len(df_plot) * 0.35)))
+
 plt.barh(df_plot["Genus"], df_plot["LDA_score"], color=colors)
 
-# Add separator line if both groups exist
+# Separator line between groups
 sep = len(df_hh)
 if len(df_hh) > 0 and len(df_ry) > 0:
-    plt.axhline(sep - 0.5, color="black", linestyle="--")
+    plt.axhline(sep - 0.5, color="black", linestyle="--", linewidth=1)
 
-# Labels and title
-plt.xlabel("Effect Size (LDA-like score)")
+# Labels
+plt.xlabel("LDA Score")
 plt.ylabel("Genus")
-plt.title("Genus-level Biomarkers (Grouped by Location)")
+plt.title("Genus-level Biomarkers (HH vs RY)")
 
-# Optional group labels
-max_lda = df_plot["LDA_score"].max() if not df_plot.empty else 1
+# Add text labels for groups
+max_lda = df_plot["LDA_score"].max() if len(df_plot) > 0 else 1
 
 if len(df_hh) > 0:
-    plt.text(max_lda * 0.8, sep / 2, "HH enriched", ha="center", va="center")
+    plt.text(max_lda * 0.8, len(df_hh) / 2, "HH enriched",
+             ha="center", va="center", fontsize=10)
 
 if len(df_ry) > 0:
-    plt.text(max_lda * 0.8, sep + len(df_ry) / 2, "RY enriched", ha="center", va="center")
+    plt.text(max_lda * 0.8, len(df_hh) + len(df_ry) / 2, "RY enriched",
+             ha="center", va="center", fontsize=10)
 
 plt.tight_layout()
-plt.savefig("lda_grouped_plot.png", dpi=300, bbox_inches="tight")
+plt.savefig(output_file, dpi=300, bbox_inches="tight")
 plt.show()
 
-print("Plot saved as: lda_grouped_plot.png")
+print(f"Plot saved as: {output_file}")
