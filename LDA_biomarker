@@ -3,40 +3,115 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ===== LOAD RESULTS =====
-df = pd.read_csv("lefse_like_results.csv")
+# =========================
+# INPUT FILES
+# =========================
+abundance_file = "genus_relative_abundance.csv"
+lefse_result_file = "lefse_like_results.csv"
 
-# ===== SPLIT BY GROUP =====
-df_ry = df[df["log2FC"] > 0].copy()
-df_hh = df[df["log2FC"] < 0].copy()
+# =========================
+# SAMPLE INFORMATION
+# =========================
+samples = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
+
+sample_to_group = {
+    "RY1": "RY",
+    "RY2": "RY",
+    "RY3": "RY",
+    "HH1": "HH",
+    "HH2": "HH",
+    "HH3": "HH"
+}
+
+# =========================
+# PART 1: CREATE LEFSE INPUT FILES
+# =========================
+# Load abundance table
+df = pd.read_csv(abundance_file)
+
+# Remove empty genus rows
+df = df[df["Genus"].notna()]
+df = df[df["Genus"].astype(str).str.strip() != ""]
+
+# Set genus as index
+df = df.set_index("Genus")
+
+# Keep only required sample columns
+missing_samples = [s for s in samples if s not in df.columns]
+if missing_samples:
+    raise ValueError(f"These sample columns are missing in {abundance_file}: {missing_samples}")
+
+df_t = df[samples].T
+
+# Create shared file
+shared = df_t.copy()
+shared.insert(0, "numOtus", shared.shape[1])
+shared.insert(0, "Group", shared.index)
+shared.insert(0, "label", "0.03")
+
+shared.to_csv("lefse.shared", sep="\t", index=False)
+
+# Create design file
+design = pd.DataFrame({
+    "Sample": samples,
+    "Group": [sample_to_group[s] for s in samples]
+})
+
+design.to_csv("lefse.design", sep="\t", index=False, header=False)
+
+print("Files created: lefse.shared and lefse.design")
+
+# =========================
+# PART 2: CREATE GROUPED LDA-LIKE BAR PLOT
+# =========================
+# Load LEfSe-like results
+res = pd.read_csv(lefse_result_file)
+
+# Check required columns
+required_cols = ["Genus", "log2FC", "LDA_score"]
+missing_cols = [c for c in required_cols if c not in res.columns]
+if missing_cols:
+    raise ValueError(f"These columns are missing in {lefse_result_file}: {missing_cols}")
+
+# Split by enrichment direction
+df_ry = res[res["log2FC"] > 0].copy()
+df_hh = res[res["log2FC"] < 0].copy()
 
 # Sort within each group
 df_ry = df_ry.sort_values("LDA_score")
 df_hh = df_hh.sort_values("LDA_score")
 
-# Combine (HH on top, RY on bottom OR vice versa)
-df_plot = pd.concat([df_hh, df_ry])
+# Combine for plotting
+df_plot = pd.concat([df_hh, df_ry], axis=0)
 
-# ===== COLOR =====
+# Set colors
 colors = ["blue" if x < 0 else "red" for x in df_plot["log2FC"]]
 
-# ===== PLOT =====
-plt.figure(figsize=(8,6))
-
+# Plot
+plt.figure(figsize=(8, 6))
 plt.barh(df_plot["Genus"], df_plot["LDA_score"], color=colors)
 
-# Add separator line between groups
+# Add separator line if both groups exist
 sep = len(df_hh)
-plt.axhline(sep - 0.5, color="black", linestyle="--")
+if len(df_hh) > 0 and len(df_ry) > 0:
+    plt.axhline(sep - 0.5, color="black", linestyle="--")
 
-# Labels
+# Labels and title
 plt.xlabel("Effect Size (LDA-like score)")
+plt.ylabel("Genus")
 plt.title("Genus-level Biomarkers (Grouped by Location)")
 
-# Optional: annotate group labels
-plt.text(max(df_plot["LDA_score"])*0.8, sep/2, "HH enriched", ha="center")
-plt.text(max(df_plot["LDA_score"])*0.8, sep + len(df_ry)/2, "RY enriched", ha="center")
+# Optional group labels
+max_lda = df_plot["LDA_score"].max() if not df_plot.empty else 1
+
+if len(df_hh) > 0:
+    plt.text(max_lda * 0.8, sep / 2, "HH enriched", ha="center", va="center")
+
+if len(df_ry) > 0:
+    plt.text(max_lda * 0.8, sep + len(df_ry) / 2, "RY enriched", ha="center", va="center")
 
 plt.tight_layout()
-plt.savefig("lda_grouped_plot.png", dpi=300)
+plt.savefig("lda_grouped_plot.png", dpi=300, bbox_inches="tight")
 plt.show()
+
+print("Plot saved as: lda_grouped_plot.png")
