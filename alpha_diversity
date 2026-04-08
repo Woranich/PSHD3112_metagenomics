@@ -1,3 +1,4 @@
+### ===== Part 1 ===== ###
 ##### This is to calculate alpha diversity ####
 
 import pandas as pd
@@ -64,6 +65,7 @@ alpha_df.to_csv(output_file, index=False)
 print(alpha_df)
 print(f"\nAlpha diversity file saved as {output_file}")
 
+### ===== Part 2 ===== ###
 ###### This is to create boxplot from alpha diversity index #####
 
 import pandas as pd
