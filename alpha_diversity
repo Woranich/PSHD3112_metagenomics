@@ -2,8 +2,6 @@
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import kruskal, mannwhitneyu
 
 # ===== INPUT / OUTPUT =====
 input_file = "asv_frequency_clean.csv"
@@ -13,7 +11,7 @@ output_file = "alpha_diversity_indices.csv"
 df = pd.read_csv(input_file)
 
 # ===== DEFINE SAMPLE COLUMNS =====
-sample_cols = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3", "NSR1", "NSR2", "NSR3"]
+sample_cols = ["RY1", "RY2", "RY3", "HH1", "HH2", "HH3"]
 
 # ===== CONVERT TO NUMERIC =====
 for col in sample_cols:
@@ -50,6 +48,7 @@ results = []
 
 for sample in sample_cols:
     counts = df[sample].values
+
     results.append({
         "Sample": sample,
         "Chao1": chao1(counts),
@@ -59,22 +58,24 @@ for sample in sample_cols:
 
 alpha_df = pd.DataFrame(results)
 
-# Add group information
-group_map = {
-    "RY1": "RY", "RY2": "RY", "RY3": "RY",
-    "HH1": "HH", "HH2": "HH", "HH3": "HH",
-    "NSR1": "NSR", "NSR2": "NSR", "NSR3": "NSR"
-}
-alpha_df["Group"] = alpha_df["Sample"].map(group_map)
-
-# Save alpha diversity table
+# ===== SAVE OUTPUT =====
 alpha_df.to_csv(output_file, index=False)
+
 print(alpha_df)
 print(f"\nAlpha diversity file saved as {output_file}")
 
-# ============================================================
-# Statistical testing + boxplots
-# ============================================================
+###### This is to create boxplot from alpha diversity index #####
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import mannwhitneyu
+
+# ===== INPUT =====
+input_file = "alpha_diversity_indices.csv"
+
+# ===== LOAD DATA =====
+df = pd.read_csv(input_file)
+df["Group"] = ["RY", "RY", "RY", "HH", "HH", "HH"]
 
 indices = ["Chao1", "Shannon", "Simpson"]
 
@@ -88,55 +89,29 @@ def p_to_stars(p):
     else:
         return "ns"
 
-def add_sig_line(ax, x1, x2, y, h, text):
-    ax.plot([x1, x1, x2, x2], [y, y+h, y+h, y], lw=1.2, c="black")
-    ax.text((x1+x2)/2, y+h, text, ha="center", va="bottom", fontsize=9)
-
 for idx in indices:
-    ry = alpha_df[alpha_df["Group"] == "RY"][idx]
-    hh = alpha_df[alpha_df["Group"] == "HH"][idx]
-    nsr = alpha_df[alpha_df["Group"] == "NSR"][idx]
+    ry = df[df["Group"] == "RY"][idx]
+    hh = df[df["Group"] == "HH"][idx]
 
-    # Global test
-    kw_stat, kw_p = kruskal(ry, hh, nsr)
-    print(f"\n{idx}")
-    print(f"Kruskal-Wallis: H={kw_stat:.4f}, p={kw_p:.4f}")
+    stat, pval = mannwhitneyu(ry, hh, alternative="two-sided")
+    stars = p_to_stars(pval)
 
-    # Pairwise tests
-    stat_ry_hh, p_ry_hh = mannwhitneyu(ry, hh, alternative="two-sided")
-    stat_ry_nsr, p_ry_nsr = mannwhitneyu(ry, nsr, alternative="two-sided")
-    stat_hh_nsr, p_hh_nsr = mannwhitneyu(hh, nsr, alternative="two-sided")
+    print(f"{idx}: U={stat}, p={pval:.4f}")
 
-    print(f"RY vs HH: U={stat_ry_hh}, p={p_ry_hh:.4f}")
-    print(f"RY vs NSR: U={stat_ry_nsr}, p={p_ry_nsr:.4f}")
-    print(f"HH vs NSR: U={stat_hh_nsr}, p={p_hh_nsr:.4f}")
+    plt.figure(figsize=(5,5))
+    plt.boxplot([ry, hh], labels=["RY", "HH"])
+    plt.scatter([1]*len(ry), ry, alpha=0.8)
+    plt.scatter([2]*len(hh), hh, alpha=0.8)
 
-    # Plot
-    fig, ax = plt.subplots(figsize=(6, 5))
+    y_max = max(df[idx])
+    y_min = min(df[idx])
+    y, h = y_max + (y_max - y_min)*0.1, (y_max - y_min)*0.05
 
-    ax.boxplot([ry, hh, nsr], labels=["RY", "HH", "NSR"])
+    plt.plot([1, 1, 2, 2], [y, y+h, y+h, y], lw=1.2)
+    plt.text(1.5, y+h, f"{stars}\np={pval:.4f}", ha="center", va="bottom")
 
-    # scatter points
-    ax.scatter([1]*len(ry), ry, alpha=0.8)
-    ax.scatter([2]*len(hh), hh, alpha=0.8)
-    ax.scatter([3]*len(nsr), nsr, alpha=0.8)
-
-    y_max = max(alpha_df[idx])
-    y_min = min(alpha_df[idx])
-    yrange = y_max - y_min if y_max > y_min else 1
-
-    # Global p-value
-    ax.set_title(f"{idx} diversity\nKruskal-Wallis p = {kw_p:.4f}")
-
-    # Pairwise significance bars
-    add_sig_line(ax, 1, 2, y_max + 0.10*yrange, 0.03*yrange,
-                 f"{p_to_stars(p_ry_hh)} (p={p_ry_hh:.4f})")
-    add_sig_line(ax, 1, 3, y_max + 0.20*yrange, 0.03*yrange,
-                 f"{p_to_stars(p_ry_nsr)} (p={p_ry_nsr:.4f})")
-    add_sig_line(ax, 2, 3, y_max + 0.30*yrange, 0.03*yrange,
-                 f"{p_to_stars(p_hh_nsr)} (p={p_hh_nsr:.4f})")
-
-    ax.set_ylabel(idx)
+    plt.ylabel(idx)
+    plt.title(f"{idx} diversity")
     plt.tight_layout()
     plt.savefig(f"{idx}_boxplot.png", dpi=300)
     plt.show()
